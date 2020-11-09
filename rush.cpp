@@ -1,8 +1,11 @@
 #include <err.h>
+#include <signal.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #include <iostream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <vector>
 using namespace std;
@@ -57,6 +60,25 @@ void wait_forground_pid(pid_t &pid, pid_t &wpid, int &status) {
     }
 }
 
+vector<string> get_path() {
+    string path_s = string(getenv("PATH"));
+    vector<string> path;
+
+    split_line(path_s, ':', path);
+    vector<string> unique_path;
+    set<string> path_set;
+    for (auto p : path) {
+        if (path_set.count(p)) continue;
+        path_set.insert(p);
+        unique_path.push_back(p);
+    }
+
+    // for (auto p : unique_path) {
+    //     cout << p << endl;
+    // }
+    return unique_path;
+}
+
 /* コマンド実行, 戻り値は正常/異常終了, 終了命令の有無 */
 pair<bool, bool> rush_execute(vector<string> args, bool background) {
     // 引数になにも与えられなかった場合
@@ -108,13 +130,6 @@ pair<bool, bool> rush_execute(vector<string> args, bool background) {
             cout << "Jobs add : " << pid << " size : " << jobs.size() << endl;
             if (!background) {
                 wait_forground_pid(pid, wpid, status);
-                // while ((wpid = waitpid(pid, &status, 0)) > 0) {
-                //     if (WIFEXITED(status) != 0) {
-                //         // 子プロセスが正常終了の場合
-                //         jobs.erase(pid);
-                //         cout << "[FG] Jobs delete : " << pid << endl;
-                //     }
-                // }
             }
         }
     } catch (char *str) {
