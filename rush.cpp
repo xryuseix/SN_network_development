@@ -19,6 +19,9 @@ struct child {
 // 実行中の子プロセス
 map<pid_t, child> jobs;
 
+// 今実行しているプロセスのpid
+int fg_pid = -1;
+
 /* 一行読み込み */
 inline string simple_getline() {
     string s;
@@ -50,16 +53,42 @@ inline void print_jobs(map<pid_t, child> v) {
     cout << "=========" << endl;
 }
 
+// フォアグラウンド処理の判定
 void wait_forground_pid(pid_t &pid, pid_t &wpid, int &status) {
     while ((wpid = waitpid(pid, &status, 0)) > 0) {
         if (WIFEXITED(status) != 0) {
             // 子プロセスが正常終了の場合
             jobs.erase(pid);
             cout << "[FG] Jobs delete : " << pid << endl;
+            fg_pid = -1;
         }
     }
 }
 
+// バックグラウンド処理の判定
+void wait_forground_pid() {
+    pid_t pid, wpid;
+    int status = 0;
+    while ((wpid = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (WIFEXITED(status) != 0) {
+            jobs.erase(wpid);
+            cout << "[BG] Jobs delete : " << wpid << endl;
+        }
+    }
+}
+
+void handler(int sig) {
+    if (sig == 2) {
+        if (fg_pid != -1) {
+            jobs.erase(fg_pid);
+            fg_pid = -1;
+        }
+    } else if (sig == 20) {
+        wait_forground_pid();
+    }
+}
+
+/* 環境変数を取得 */
 vector<string> get_path() {
     string path_s = string(getenv("PATH"));
     vector<string> path;
@@ -72,10 +101,6 @@ vector<string> get_path() {
         path_set.insert(p);
         unique_path.push_back(p);
     }
-
-    // for (auto p : unique_path) {
-    //     cout << p << endl;
-    // }
     return unique_path;
 }
 
@@ -100,6 +125,7 @@ pair<bool, bool> rush_execute(vector<string> args, bool background) {
     } else if (args.size() >= 2 && args[0] == "fg") {
         pid_t wpid;
         pid_t pid = strtoll(args[1].c_str(), NULL, 10);
+        fg_pid = pid;
         int status = 0;
         wait_forground_pid(pid, wpid, status);
         return {true, false};
@@ -117,16 +143,16 @@ pair<bool, bool> rush_execute(vector<string> args, bool background) {
                 args_c.push_back(const_cast<char *>(args[i].c_str()));
             }
             args_c.push_back(NULL);
-
             if (execv(args[0].c_str(), args_c.data()) == -1) {
                 perror("rush");
             }
-            // exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE);
         } else if (pid < 0) {
             // Error forking
             perror("rush");
         } else {  // 親ノードの処理
             jobs[pid] = {1, background};
+            fg_pid = pid;
             cout << "Jobs add : " << pid << " size : " << jobs.size() << endl;
             if (!background) {
                 wait_forground_pid(pid, wpid, status);
@@ -142,20 +168,14 @@ pair<bool, bool> rush_execute(vector<string> args, bool background) {
 void rush_loop(void) {
     while (true) {
         {
-            // バックグラウンド処理の判定
-            pid_t pid, wpid;
-            int status = 0;
-            while ((wpid = waitpid(-1, &status, WNOHANG)) > 0) {
-                if (WIFEXITED(status) != 0) {
-                    jobs.erase(wpid);
-                    cout << "[BG] Jobs delete : " << wpid << endl;
-                }
-            }
+            signal(SIGINT, handler);
+            signal(SIGCHLD, handler);
         }
         vector<string> args;
+        fflush(stdout);
         cout << "> ";
-        string line = simple_getline();
         fflush(stdin);
+        string line = simple_getline();
         bool background = split_line(line, ' ', args);
 
         auto [status, exit] = rush_execute(args, background);
