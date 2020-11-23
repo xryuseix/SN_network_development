@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <set>
@@ -77,6 +79,7 @@ void wait_forground_pid() {
     }
 }
 
+/* シグナルハンドラ */
 void handler(int sig) {
     if (sig == 2) {
         if (fg_pid != -1) {
@@ -99,8 +102,9 @@ vector<string> get_path() {
     for (auto p : path) {
         if (path_set.count(p)) continue;
         path_set.insert(p);
-        unique_path.push_back(p);
+        unique_path.push_back(p + "/");
     }
+    unique_path.push_back("");
     return unique_path;
 }
 
@@ -143,10 +147,20 @@ pair<bool, bool> rush_execute(vector<string> args, bool background) {
                 args_c.push_back(const_cast<char *>(args[i].c_str()));
             }
             args_c.push_back(NULL);
-            if (execv(args[0].c_str(), args_c.data()) == -1) {
+
+            // 環境変数を取得
+            vector<string> env_path = get_path();
+            // 環境変数から実行できるコマンドを探す
+            [&]() -> void {
+                for (auto env : env_path) {
+                    if (execv((env + args[0]).c_str(), args_c.data()) != -1) {
+                        return;
+                    }
+                }
                 perror("rush");
-            }
+            }();
             exit(EXIT_FAILURE);
+
         } else if (pid < 0) {
             // Error forking
             perror("rush");
